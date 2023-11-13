@@ -1,2 +1,2 @@
 # openvpn-configs
-Repository for testing OpenVPN configurations
+Repository for testing OpenVPN config files
