@@ -7,10 +7,11 @@ services:
     image: lochnerr/openvpn-configs:latest
     # To not run the server as a systemd process, uncomment the following command.
     #command: /usr/local/bin/run-openvpn-server
-    restart: unless-stopped
+    restart: "no"
     hostname: openvpn-server.example.com
     volumes:
       - /dev/net:/dev/net:z
+      - sut:/sut
     # Note: See openvpn-testing-matrix.ods to see when privileged is needed.
     privileged: true
     cap_drop:
@@ -24,13 +25,14 @@ services:
     tmpfs:
       - /run
       - /tmp
-  openvpn-client:
+  sut:
     image: lochnerr/openvpn-configs:latest
     command: /usr/local/bin/run-openvpn-client
     restart: "no"
     hostname: openvpn-client1.example.com
     volumes:
       - /dev/net:/dev/net:z
+      - sut:/sut
     privileged: true
     cap_drop:
       - ALL
@@ -43,9 +45,7 @@ services:
     tmpfs:
       - /run
       - /tmp
+
+volumes:
   sut:
-    image: lochnerr/openvpn-configs:latest
-    command: sleep 3600s
-    restart: "no"
-    hostname: sut.example.com
 

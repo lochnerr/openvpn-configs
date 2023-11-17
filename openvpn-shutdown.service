@@ -1,0 +1,14 @@
+[Unit]
+Description=Unit for automated testing of openvpn-configs project.
+Wants=network-online.target
+After=network.target network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/openvpn-wait-shutdown
+ExecStop=/bin/echo "shutdown" >/sut/shutdown
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

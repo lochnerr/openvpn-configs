@@ -50,7 +50,11 @@ rm -rf /var/cache/dnf && \
 rm -rf /var/cache/yum && \
 true
 
+# Copy the script files and other artifacts.
 COPY bin/. /usr/local/bin/
+
+# Copy the shutdown service for system unit tests.
+COPY openvpn-shutdown.service /usr/lib/systemd/system/
 
 RUN \
 # Create run directories for testing.
@@ -60,6 +64,8 @@ chown -R root:openvpn /run/openvpn-server && \
 chown -R root:openvpn /run/openvpn-client && \
 # Generate the config files.
 /usr/local/bin/generate-configs && \
+systemctl enable openvpn-server@vpn1test && \
+systemctl enable openvpn-shutdown.service && \
 true
 
 # Use systemd init to bring up services.

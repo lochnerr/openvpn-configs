@@ -3,10 +3,37 @@
 # Run the openvpn client in the same way it is run by the openvpn-client@vpn1test systemd unit.
 
 # Wait a bit for the server to start.
-sleep 5s
+sleep 3s
 
-# Run it.
+# Run it asynchronously.
 exec /usr/sbin/openvpn \
  --suppress-timestamps \
- --config /etc/openvpn/client/vpn1test.conf
+ --config /etc/openvpn/client/vpn1test.conf &
+
+# Wait a bit for them to connect.
+sleep 2s
+
+# Simple check to see if the client can successfully ping the server's vpn address
+# five times in a row within 30 ping attempts.
+tries="0"; consecutive="0"; rc="0"
+while true ; do
+  tries="$((tries+1))"
+  if ping -w1 -c 1 10.9.0.1 >/dev/null 2>&1; then
+    [ "$((consecutive+=1))" -gt 5 ] && break
+  else
+    consecutive="0"
+  fi
+  [ "$tries" -ge 30 ] && break
+done
+if [ "$consecutive" -gt 5 ]; then
+  echo "Client succeeded in contacting server after $tries tries"
+else
+  echo "Client failed in contacting server after $tries tries"
+  rc="1"
+fi
+
+# Signal the server the test is complete.
+touch /sut/shutdown
+
+exit $rc
 
