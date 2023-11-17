@@ -1,0 +1,12 @@
+#!/bin/sh
+
+# Run the openvpn client in the same way it is run by the openvpn-client@vpn1test systemd unit.
+
+# Wait a bit for the server to start.
+sleep 5s
+
+# Run it.
+exec /usr/sbin/openvpn \
+ --suppress-timestamps \
+ --config /etc/openvpn/client/vpn1test.conf
+

@@ -1,0 +1,77 @@
+FROM fedora:latest
+
+LABEL MAINTAINER Richard Lochner, Clone Research Corp. <lochner@clone1.com> \
+      org.label-schema.name = "openvpn-configs" \
+      org.label-schema.description = "Container for testing OpenVPN config files" \
+      org.label-schema.vendor = "Clone Research Corp" \
+      org.label-schema.usage = "https://github.com/lochnerr/openvpn-configs" \
+      org.label-schema.vcs-url = "https://github.com/lochnerr/openvpn-configs.git"
+
+# Manditory packages:
+# openvpn - The OpenVPN package
+# openssl - needed by easytls
+# git - Used to get the easytls scripts
+# systemd-container - systemd for containers
+# easy-rsa - For setting up certificate authority
+
+# Useful packages for debugging:
+# iproute - ip
+# iputils - ping
+# procps-ng - ps
+
+RUN \
+dnf -y install --nodocs \
+ openvpn \
+ openssl \
+ git \
+ systemd-container \
+ iproute \
+ iputils \
+ procps-ng \
+&& \
+# Docs for easy-rsa are needed to get the vars.example file, so remove nodocs option.
+cp -p /etc/dnf/dnf.conf /etc/dnf/dnf.conf.save && \
+sed -i 's/^tsflags/#tsflags/' /etc/dnf/dnf.conf && \
+dnf -y install easy-rsa && \
+# Restore the nodocs setting, just in case.
+mv -f /etc/dnf/dnf.conf.save /etc/dnf/dnf.conf && \
+# Make easyrsa globally available.
+easyrsa="$(find /usr/share | grep easyrsa)" && \
+ln -s $easyrsa  /usr/local/bin/ && \
+# Save link to vars.example.
+ln -s /usr/share/doc/easy-rsa/vars.example /usr/local/bin/ && \
+# Get easytls.
+cd $HOME && \
+git clone https://github.com/TinCanTech/easy-tls.git && \
+ln -s $HOME/easy-tls/easytls /usr/local/bin/ && \
+dnf -y clean all && \
+# Empty the yum cache.
+rm -rf /var/cache/dnf && \
+rm -rf /var/cache/yum && \
+true
+
+COPY bin/. /usr/local/bin/
+
+RUN \
+# Create run directories for testing.
+mkdir -p /run/openvpn-server && \
+mkdir -p /run/openvpn-client && \
+chown -R root:openvpn /run/openvpn-server && \
+chown -R root:openvpn /run/openvpn-client && \
+# Generate the config files.
+/usr/local/bin/generate-configs && \
+true
+
+# Use systemd init to bring up services.
+CMD [ "/sbin/init" ]
+
+# Set systemd stop signal.
+STOPSIGNAL SIGRTMIN+3
+
+# Set the build labels.
+# Do this last to allow build cacheing during development.
+ARG BUILD_DATE
+ARG VCS_REF
+LABEL org.label-schema.build-date = $BUILD_DATE \
+      org.label-schema.vcs-ref = $VCS_REF
+

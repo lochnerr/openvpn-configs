@@ -1,0 +1,13 @@
+#!/bin/sh
+
+# Run the openvpn server in the same way it is run by the openvpn-server@vpn1test systemd unit.
+
+# Run it.
+exec /usr/sbin/openvpn \
+ --status /run/openvpn-server/status-vpn1test.log \
+ --status-version 2 \
+ --suppress-timestamps \
+ --cipher AES-256-GCM \
+ --data-ciphers AES-256-GCM:AES-128-GCM:AES-256-CBC:AES-128-CBC \
+ --config /etc/openvpn/server/vpn1test.conf
+

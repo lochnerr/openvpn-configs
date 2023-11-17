@@ -1,0 +1,60 @@
+version: '3'
+
+# Automated test compose file for openvpn-configs container.
+
+services:
+  openvpn-server:
+    image: lochnerr/openvpn-configs:latest
+    # The command specified below is very similar to how it is run by the systemd openvpn-server service.
+    #command: /usr/local/bin/run-openvpn-server
+    restart: unless-stopped
+    hostname: openvpn-server.example.com
+    volumes:
+      - /dev/net:/dev/net:z
+    # Note: See openvpn-testing-matrix.ods to see when privileged is needed.
+    privileged: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_ADMIN
+      - SETGID
+      - SETUID
+      - SETPCAP
+      - SYS_CHROOT
+    tmpfs:
+      - /run
+      - /tmp
+    networks:
+      default:
+      net1:
+  openvpn-client:
+    image: lochnerr/openvpn-configs:latest
+    command: /usr/local/bin/run-openvpn-client
+    restart: "no"
+    hostname: openvpn-client1.example.com
+    volumes:
+      - /dev/net:/dev/net:z
+    privileged: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_ADMIN
+      - SETPCAP
+      - SETGID
+      - SETUID
+    read_only: true
+    tmpfs:
+      - /run
+      - /tmp
+    networks:
+      default:
+
+networks:
+  default:
+  net1:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 192.168.77.0/24
+
