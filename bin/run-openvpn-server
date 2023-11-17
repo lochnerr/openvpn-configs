@@ -2,6 +2,10 @@
 
 # Run the openvpn server in the same way it is run by the openvpn-server@vpn1test systemd unit.
 
+# The run directory is mounted as a tmpfs so this directory needs to be created
+# when not run as a service.
+mkdir -p /run/openvpn-server
+
 # Run it.
 /usr/sbin/openvpn \
  --status /run/openvpn-server/status-vpn1test.log \
