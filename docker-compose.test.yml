@@ -5,7 +5,7 @@ version: '3'
 services:
   openvpn-server:
     image: lochnerr/openvpn-configs:latest
-    # The command specified below is very similar to how it is run by the systemd openvpn-server service.
+    # To not run the server as a systemd process, uncomment the following command.
     #command: /usr/local/bin/run-openvpn-server
     restart: unless-stopped
     hostname: openvpn-server.example.com
@@ -24,9 +24,6 @@ services:
     tmpfs:
       - /run
       - /tmp
-    networks:
-      default:
-      net1:
   openvpn-client:
     image: lochnerr/openvpn-configs:latest
     command: /usr/local/bin/run-openvpn-client
@@ -46,15 +43,9 @@ services:
     tmpfs:
       - /run
       - /tmp
-    networks:
-      default:
-
-networks:
-  default:
-  net1:
-    driver: bridge
-    ipam:
-      driver: default
-      config:
-        - subnet: 192.168.77.0/24
+  sut:
+    image: lochnerr/openvpn-configs:latest
+    command: sleep 3600s
+    restart: "no"
+    hostname: sut.example.com
 
