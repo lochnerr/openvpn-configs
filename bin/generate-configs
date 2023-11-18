@@ -14,6 +14,11 @@ cp /usr/local/bin/vars.example pki/vars
 # Set default option values.
 sed -i 's/.*set_var EASYRSA_CERT_EXPIRE.*/set_var EASYRSA_CERT_EXPIRE    3650/'  pki/vars
 sed -i 's/.*set_var EASYRSA_KEY_SIZE.*/set_var EASYRSA_KEY_SIZE       4096/'     pki/vars
+# Use ed25519 keys.
+use_ed_keys="true"
+if [ -n "$use_ed_keys" ]; then
+  sed -i 's/.*set_var EASYRSA_ALGO.*/set_var EASYRSA_ALGO           ed/'         pki/vars
+fi
 echo "Example CA" | easyrsa build-ca nopass
 # For testing use pre-generated parms, if available.
 if [ -e /usr/local/bin/dh.pem ]; then
@@ -224,10 +229,30 @@ rm server.tmp
 systemctl enable openvpn-server@vpn1test
 
 # Do the client config.
+
+set_key_value() {
+  if [ -z "$inline" ]; then
+    # Do not inline the value.
+    sed -i "s@^$1.*@$1 /etc/openvpn/client/$2@"  client.tmp
+  else
+    # Delete the placeholder entry.
+    sed -i "/^$1/d"                              client.tmp
+    # Inline the data
+    echo ""                                    >>client.tmp
+    echo "<$1>"                                >>client.tmp
+    cat configs/client1/$2                     >>client.tmp
+    echo "</$1>"                               >>client.tmp
+  fi
+}
+inline="true"
+set_key_value ca            ca.crt
+set_key_value cert          ${client}.crt
+set_key_value key           ${client}.key
+set_key_value tls-crypt-v2  ${server}-tls-crypt-v2.key
 touch /etc/openvpn/client/vpn1test.conf
 cp client.tmp /etc/openvpn/client/vpn1test.conf
 rm client.tmp
-cp -p configs/client1/* /etc/openvpn/client/
+[ -z "$inline" ] && cp -p configs/client1/* /etc/openvpn/client/
 
 ls -lRZ /etc/openvpn/
 
