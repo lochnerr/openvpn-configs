@@ -140,7 +140,6 @@ auth SHA512
 	__EOD__
 
 cat >client.tmp <<-__EOD__
-# Client config seems golden!
 client
 dev tun
 proto udp
@@ -172,6 +171,21 @@ tls-client
 persist-remote-ip
 tls-cipher TLS-DHE-RSA-WITH-AES-256-CBC-SHA:TLS-DHE-DSS-WITH-AES-256-CBC-SHA:TLS-RSA-WITH-AES-256-CBC-SHA
 #verify-x509-name Server-1 name
+
+# For the purposes of validating client configs, the following settings are okay.
+
+redirect-gateway def1
+
+# The following windows-only options are ignored and harmless in linux.
+ignore-unknown-option block-outside-dns register-dns
+block-outside-dns
+register-dns
+
+# These are accepted in linux; not sure if they work.
+dns server -8 address 8.8.4.4
+dns server -6 address 8.8.8.8
+dns server  0 address 1.1.1.1
+dns search-domains example.com
 	__EOD__
 
 # /usr/sbin/openvpn --status /run/openvpn-server/status-vpn1test.log --status-version 2 --suppress-timestamps --cipher AES-256-GCM --data-ciphers AES-256-GCM:AES-128-GCM:AES-256-CBC:AES-128-CBC --config /etc/openvpn/server/vpn1test.conf
