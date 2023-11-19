@@ -2,40 +2,140 @@
 
 set -xe
 
+# Build Public Key Infrastructure (PKI) using simulated systems separate from the CA.
+
+# See: https://community.openvpn.net/openvpn/wiki/EasyRSA3-OpenVPN-Howto
+
 cd $HOME
 echo "Directory is $(pwd)."
 
-rm -rf testca
-mkdir  testca
-cd     testca
+# Setup directories for the simulated systems.
 
-easyrsa init-pki
-cp /usr/local/bin/vars.example pki/vars
-# Set default option values.
-sed -i 's/.*set_var EASYRSA_CERT_EXPIRE.*/set_var EASYRSA_CERT_EXPIRE    3650/'  pki/vars
-sed -i 's/.*set_var EASYRSA_KEY_SIZE.*/set_var EASYRSA_KEY_SIZE       4096/'     pki/vars
+rm -rf systems
+mkdir -p systems/ca
+mkdir -p systems/client
+mkdir -p systems/server
+cd systems
+
+# Get the path to the first easyrsa script in /usr.
+for i in $(find /usr 2>/dev/null | grep easyrsa$) ; do easy=$i ; done
+if [ -z "$easy" ]; then
+  echo "Error: Can't find easyrsa script."
+  exit 1
+fi
+# Make it accessible in the system directories.
+ln -s $easy ca/easyrsa
+ln -s ../ca/easyrsa server/easyrsa
+ln -s ../ca/easyrsa client/easyrsa
+
+# Find the first vars.example file in /usr and copy it here.
+for i in $(find /usr 2>/dev/null | grep vars.example$) ; do easy=$i ; done
+if [ -z "$easy" ]; then
+  echo "Error: Can't find easyrsa script."
+  exit 1
+fi
+cp $easy vars
+
+# Set defaults for various easyrsa settings:
+sed -i 's/.*set_var EASYRSA_CERT_EXPIRE.*/set_var EASYRSA_CERT_EXPIRE  3650/'  vars
+sed -i 's/.*set_var EASYRSA_KEY_SIZE.*/set_var EASYRSA_KEY_SIZE     4096/'     vars
+sed -i 's/.*set_var EASYRSA_DN.*/set_var EASYRSA_DN   "cn_only"/'              vars
 # Use ed25519 keys.
 use_ed_keys="true"
 if [ -n "$use_ed_keys" ]; then
-  sed -i 's/.*set_var EASYRSA_ALGO.*/set_var EASYRSA_ALGO           ed/'         pki/vars
+  sed -i 's/.*set_var EASYRSA_ALGO.*/set_var EASYRSA_ALGO         ed/'         vars
 fi
-echo "Example CA" | easyrsa build-ca nopass
+
+: "Changes to easyrsa vars:"
+diff $easy vars || :
+
+# 1a. On the CA, start a new PKI:
+
+cd ca
+./easyrsa init-pki
+mv ../vars pki/
+
+# 1b. Build the CA keypair/cert:
+
+echo "Example CA" | ./easyrsa build-ca nopass
+
+# 2a. On the simulated server system, generate a keypair and request. Normally these are left unencrypted
+#     by using the "nopass" argument since servers usually start up without any password input. This generates
+#     an unencrypted key, so protect its access and file permissions carefully.
+
+cd ../server
+./easyrsa init-pki
+ln -s ../../ca/pki/vars pki/vars
+
+echo "" | ./easyrsa --req-cn=vpn1test gen-req vpn1test nopass text
+
+# 2b. On the PKI for the OpenVPN server, this command will generate DH parameters used during the TLS handshake with connecting
+#     clients. The DH params are not security sensitive and are used only by an OpenVPN server.
+
 # For testing use pre-generated parms, if available.
 if [ -e /usr/local/bin/dh.pem ]; then
+  echo "Using pre-generated Diffe-Helmann parameters."
   cp -p /usr/local/bin/dh.pem pki/
 else
-  easyrsa gen-dh
+  ./easyrsa gen-dh
 fi
-easyrsa gen-crl
-echo "yes" | easyrsa build-server-full vpn1test nopass
-echo "yes" | easyrsa build-client-full client1 nopass
-echo "yes" | easyrsa build-client-full client2 nopass
-echo "yes" | easyrsa build-client-full client3 nopass
+
+# 3.  On each client, generate a keypair and request. The name selected must be unique across the PKI and is otherwise arbitrary.
+#     Create a new PKI and request on each client as follows
+
+cd ../client
+./easyrsa init-pki
+ln -s ../../ca/pki/vars pki/vars
+
+echo "" | ./easyrsa --req-cn=client1 gen-req client1 nopass text
+
+# 4.  Send the request files from each entity to the CA system. This is not security sensitive, though it is wise to verify the
+#     received file matches the sender's copy if the transport is untrusted.
+
+#     This was effectively done earlier by generating the keys and csrs in separate ../server and ../client directories.
+
+# 5.  On the CA, import each entity request file, giving it an arbitrary "short name" as follows. This basically just copies
+#     the request file into reqs/ under the PKI dir to prepare it for review and signing.
+
+cd ../ca
+
+./easyrsa import-req ../server/pki/reqs/vpn1test.req vpn1test
+./easyrsa import-req ../client/pki/reqs/client1.req  client1
+
+# The requests are no longer needed.
+rm ../server/pki/reqs/vpn1test.req
+rm ../client/pki/reqs/client1.req
+
+# 6.  Review each request's details if you wish, then sign it as one of the types: server or client.
+
+#  A. (optional) review the request:
+
+./easyrsa show-req vpn1test
+./easyrsa show-req client1
+
+#  B. Create and sign a client certificate:
+
+echo "yes" | ./easyrsa sign-req client client1
+
+#  C. Create and sign a server certificate:
+
+echo "yes" | ./easyrsa sign-req server vpn1test
+
+# 7.  The CA returns the signed certificate produced in the above step, and includes the CA certificate (ca.crt) unless
+#     the client already has it. This can be done over an insecure channel, though the client is encouraged to confirm
+#     the received CA cert is valid if the transport is untrusted.
+
+#     This is done later in this script.
+
+# 8.  Generate tls-crypt-v2 files.
+
 easytls init-tls
 easytls build-tls-crypt-v2-server vpn1test
 easytls build-tls-crypt-v2-client vpn1test client1
-easytls build-tls-crypt-v2-client vpn1test client2
-easytls build-tls-crypt-v2-client vpn1test client3
+
+# 8.  Generate an empty certificate revocation list (CRL) file.
+
+./easyrsa gen-crl
 
 ls -lR pki/
 
@@ -47,13 +147,13 @@ copy_vpn_files() {
 
   cp pki/ca.crt                              $BASE/
   cp pki/issued/${2}.crt                     $BASE/
-  cp pki/private/${2}.key                    $BASE/
+  [ "$1" = "server" ] && cp ../server/pki/private/${2}.key  $BASE/
 
   if [ "$1" = "client" ]; then
     cp pki/easytls/${2}-tls-crypt-v2.key     $BASE/${3}-tls-crypt-v2.key
   else
     cp pki/easytls/${2}-tls-crypt-v2.key     $BASE/
-    cp pki/dh.pem                            $BASE/
+    cp ../server/pki/dh.pem                  $BASE/
     cp pki/crl.pem                           $BASE/
   fi
 }
@@ -61,8 +161,6 @@ copy_vpn_files() {
 # Copy the config files.
 copy_vpn_files server vpn1test
 copy_vpn_files client client1 vpn1test
-copy_vpn_files client client2 vpn1test
-copy_vpn_files client client3 vpn1test
 
 ls -lR configs/
 
@@ -188,8 +286,6 @@ dns server  0 address 1.1.1.1
 dns search-domains example.com
 	__EOD__
 
-# /usr/sbin/openvpn --status /run/openvpn-server/status-vpn1test.log --status-version 2 --suppress-timestamps --cipher AES-256-GCM --data-ciphers AES-256-GCM:AES-128-GCM:AES-256-CBC:AES-128-CBC --config /etc/openvpn/server/vpn1test.conf
-
 # Jail
 JAIL="true"
 
@@ -261,12 +357,15 @@ set_key_value() {
 inline="true"
 set_key_value ca            ca.crt
 set_key_value cert          ${client}.crt
-set_key_value key           ${client}.key
+sed -i "s@^key.*@key /etc/openvpn/client/${client}.key@"  client.tmp
+
 set_key_value tls-crypt-v2  ${server}-tls-crypt-v2.key
 touch /etc/openvpn/client/vpn1test.conf
 cp client.tmp /etc/openvpn/client/vpn1test.conf
 rm client.tmp
 [ -z "$inline" ] && cp -p configs/client1/* /etc/openvpn/client/
+# Simulate moving the client's private key into their local openvpn configuration directory.
+cp ../client/pki/private/${client}.key      /etc/openvpn/client/
 
 ls -lRZ /etc/openvpn/
 
