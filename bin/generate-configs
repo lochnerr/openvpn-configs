@@ -286,37 +286,17 @@ dns server  0 address 1.1.1.1
 dns search-domains example.com
 	__EOD__
 
-# Jail
-JAIL="true"
+rm -rf /etc/openvpn/server
+mkdir /etc/openvpn/server
 
-# Common server fixups.
 server="vpn1test"
 sed -i "s@^cert.*@cert /etc/openvpn/server/${server}.crt@" server.tmp
 sed -i "s@^key.*@key  /etc/openvpn/server/${server}.key@"  server.tmp
 sed -i "s@^tls-crypt-v2.*@tls-crypt-v2 /etc/openvpn/server/${server}-tls-crypt-v2.key@"  server.tmp
 
-# Common client fixups.
-client="client1"
-# The server name is defined in the compose file hostname option.
-sed -i "s@.*remote .*@remote openvpn-server.example.com 1194@"    client.tmp
-sed -i "s@^ca.*@ca /etc/openvpn/client/ca.crt@"                   client.tmp
-sed -i "s@^cert.*@cert /etc/openvpn/client/${client}.crt@"        client.tmp
-sed -i "s@^key.*@key  /etc/openvpn/client/${client}.key@"         client.tmp
-sed -i "s@.*verify-x509-name.*@verify-x509-name ${server} name@"  client.tmp
-
-# Note: The tls crypt key for the client is named after the server.  This allows a client to have
-# to multiple servers in the same directory using the same cert and key but with server specific tls
-# crypt v2 keys.
-sed -i "s@^tls-crypt-v2.*@tls-crypt-v2 /etc/openvpn/client/${server}-tls-crypt-v2.key@"  client.tmp
-
-# Start fresh.
-rm -rf /etc/openvpn/server
-rm -rf /etc/openvpn/client
-mkdir /etc/openvpn/server
-mkdir /etc/openvpn/client
-
 cp -p configs/vpn1test/* /etc/openvpn/server/
 
+JAIL="true"
 if [ -n "$JAIL" ]; then
   # Jail fixups.
   sed -i 's/^crl-verify.*/crl-verify crl.pem/' server.tmp
@@ -338,7 +318,20 @@ rm server.tmp
 
 systemctl enable openvpn-server@vpn1test
 
-# Do the client config.
+rm -rf /etc/openvpn/client
+mkdir /etc/openvpn/client
+
+client="client1"
+sed -i "s@.*remote .*@remote openvpn-server.example.com 1194@"    client.tmp
+sed -i "s@^ca.*@ca /etc/openvpn/client/ca.crt@"                   client.tmp
+sed -i "s@^cert.*@cert /etc/openvpn/client/${client}.crt@"        client.tmp
+sed -i "s@^key.*@key  /etc/openvpn/client/${client}.key@"         client.tmp
+sed -i "s@.*verify-x509-name.*@verify-x509-name ${server} name@"  client.tmp
+
+# Note: The tls crypt key for the client is named after the server.  This allows a client to have
+# to multiple servers in the same directory using the same cert and key but with server specific tls
+# crypt v2 keys.
+sed -i "s@^tls-crypt-v2.*@tls-crypt-v2 /etc/openvpn/client/${server}-tls-crypt-v2.key@"  client.tmp
 
 set_key_value() {
   if [ -z "$inline" ]; then
