@@ -24,6 +24,7 @@ dnf -y install --nodocs \
  openvpn \
  openssl \
  git \
+ zip \
  systemd-container \
  iproute \
  iputils \
@@ -52,6 +53,7 @@ true
 
 # Copy the script files and other artifacts.
 COPY bin/. /usr/local/bin/
+COPY *.template /templates/
 
 # Copy the shutdown service for system unit tests.
 COPY openvpn-shutdown.service /usr/lib/systemd/system/
