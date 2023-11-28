@@ -7,6 +7,9 @@ LABEL MAINTAINER Richard Lochner, Clone Research Corp. <lochner@clone1.com> \
       org.label-schema.usage = "https://github.com/lochnerr/openvpn-configs" \
       org.label-schema.vcs-url = "https://github.com/lochnerr/openvpn-configs.git"
 
+# Easy-RSA crypto mode: rsa, ec, or ed.
+ARG SET_EASYRSA_ALGO=ed
+
 # Manditory packages:
 # openvpn - The OpenVPN package
 # openssl - needed by easytls
@@ -42,17 +45,14 @@ ln -s $easyrsa  /usr/local/bin/ && \
 # Save link to vars.example.
 ln -s /usr/share/doc/easy-rsa/vars.example /usr/local/bin/ && \
 # Get easytls.
-cd $HOME && \
+cd /usr/local/share/ && \
 git clone https://github.com/TinCanTech/easy-tls.git && \
-ln -s $HOME/easy-tls/easytls /usr/local/bin/ && \
+ln -s ../share/easy-tls/easytls /usr/local/bin && \
 dnf -y clean all && \
 # Empty the yum cache.
 rm -rf /var/cache/dnf && \
 rm -rf /var/cache/yum && \
 true
-
-# Easy-RSA crypto mode: rsa, ec, or ed.
-ARG SET_EASYRSA_ALGO=ed
 
 # Copy the script files and other artifacts.
 COPY bin/. /usr/local/bin/
