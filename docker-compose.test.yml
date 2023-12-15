@@ -3,12 +3,12 @@ version: '3'
 # Automated test compose file for openvpn-configs container.
 
 services:
-  openvpn-server:
+  server:
     image: lochnerr/openvpn-configs:latest
-    # To not run the server as a systemd process, uncomment the following command.
-    #command: /usr/local/bin/run-openvpn-server
+    # To run the server as a systemd process, comment the following command.
+    command: /usr/local/bin/run-openvpn-server
     restart: "no"
-    hostname: openvpn-server.example.com
+    hostname: server.example.com
     volumes:
       - /dev/net:/dev/net:z
       - sut:/sut
@@ -29,7 +29,7 @@ services:
     image: lochnerr/openvpn-configs:latest
     command: /usr/local/bin/run-openvpn-client
     restart: "no"
-    hostname: openvpn-client1.example.com
+    hostname: sut.example.com
     volumes:
       - /dev/net:/dev/net:z
       - sut:/sut

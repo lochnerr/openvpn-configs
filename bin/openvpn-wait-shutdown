@@ -2,20 +2,23 @@
 
 # Wait forever for a shutdown signal from the test client."
 
-[ -e /sut/shutdown ] && rm /sut/shutdown
+signal_file="${1:-/sut/shutdown}"
 
-echo "Server waiting for shutdown signal"
+[ -e $signal_file ] && rm $signal_file
+
+echo "Waiting for shutdown signal file ${signal_file}."
+
 while true ; do
-  [ -e /sut/shutdown ] && break
+  [ -e $signal_file ] && break
   sleep 3s
 done
+
+echo "Shutting down"
 
 # If running under systemd, we need to shutdown.
 # This, of course, is only relevant during automated builds.
 if ps aux | grep '/[s]bin/init' >/dev/null 2>&1 ; then
   systemctl poweroff
-else
-  echo "Server shutting down"
 fi
 
 exit 0

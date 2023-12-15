@@ -1,0 +1,486 @@
+#!/bin/bash
+
+# catools?
+
+set -xe
+
+# OpenVPN Public Key Infrastructure (PKI) tools.
+           
+
+# Client:
+
+# approve-csr jreynolds vpn1test
+
+#    generate-request
+#    jreynolds.key                        !
+#    jreynolds.csr                -->   ca    not secret - can be sent to ca over email.
+#    approve-request
+#    jreynolds.conf               <--   ca !  not secret - can be sent to client over email.
+#    jreynolds.crt                <--   ca !  not secret - can be sent to client over email.
+#    vpn1test-client-crypt-v2.key <--   ca !  not secret - can be sent to client over email.
+#    ca.crt                       <--   ca !  not secret - can be sent to client over email.
+    
+#!!! jreynolds.zip                <--   ca !  not secret - can be sent to client over email.
+
+# Server:
+
+# approve-csr vpn1test windows
+
+#    generate-request
+#    vpn1test.key                         ! 
+#    vpn1test.csr                 -->   ca    not secret - can be sent to ca over email.
+#    approve-request
+#    vpn1test.conf                <--   ca !  not secret - can be sent to client over email.
+#    vpn1test.crt                 <--   ca !  not secret - can be sent to client over email.
+#    vpn1test-server-crypt-v2.key <--   ca !  not secret - can be sent to client over email.
+#    ca.crt                       <--   ca !  not secret - can be sent to client over email.
+
+#!!! vpn1test.zip                 <--   ca !  not secret - can be sent to client over email.
+
+#/etc/openvpn/client/client1.key
+#/etc/openvpn/client/vpn1test.conf
+
+#/etc/openvpn/server/ca.crt
+#/etc/openvpn/server/jail/ccd
+#/etc/openvpn/server/jail/crl.pem
+#/etc/openvpn/server/jail/tmp
+#/etc/openvpn/server/vpn1test-tls-crypt-v2.key
+#/etc/openvpn/server/vpn1test.conf
+#/etc/openvpn/server/vpn1test.crt
+#/etc/openvpn/server/vpn1test.key
+
+
+cmd_help() {
+	#unset -v text err_text opts text_only
+	case "$1" in
+	init-pki|clean-all)
+		text="
+* init-pki [ cmd-opts ]
+
+      Removes & re-initializes the PKI directory for a new PKI"
+
+		opts="
+      * hard    - Recursively delete the PKI directory (default).
+      * soft    - Keep the named PKI directory and PKI 'vars' file
+                  intact."
+	;;
+	build-ca)
+		text="
+* build-ca [ cmd-opts ]
+
+      Creates a new CA"
+
+		opts="
+      * raw-ca  - ONLY use SSL binary to input CA password
+        raw       (Equivalent to global option '--raw-ca')
+
+      * nopass  - Do not encrypt the private key (Default: encrypted)
+                  (Equivalent to global option '--nopass|--no-pass')
+
+      * subca   - Create an intermediate CA keypair and request
+        intca     (default is a root CA)"
+	;;
+	--req-cn|req-cn)
+		text_only=1
+		text="
+* Option: --req-cn=NAME
+
+      This specific option can set the CSR commonName.
+
+      Can only be used in BATCH mode for the following commands:
+      * To build a new CA [or Sub-CA]:
+        eg: '--batch --req-cn=NAME build-ca [subca]'
+      * To generate a certificate signing request:
+        eg: '--batch --req-cn=NAME gen-req <file_name_base>'"
+	;;
+	more|test|xtra|extra|ext)
+		# Test features
+		text_only=1
+		text="
+  Print vars.example here-doc to stdout:
+    make-vars
+
+  Make safessl-easyrsa.cnf file:
+    mss|make-safe-ssl
+
+  Check <SERIAL> number is unique:
+    serial|check-serial <SERIAL>
+
+  Display DN of certificate:
+    display-dn <file_name_base>
+
+  Display SAN of certificate:
+    display-san <file_name_base>
+
+  Generate default SAN of request:
+    default-san <file_name_base>
+
+  Display EKU of certificate:
+    x509-eku <file_name_base>"
+	;;
+	opts|options)
+		: #opt_usage
+	;;
+	"")
+		: #usage 
+	;;
+	*)
+		err_text="
+  Unknown command: '$1' \
+(try without commands for a list of commands)"
+		easyrsa_exit_with_error=1
+	esac
+
+	if [ "$err_text" ]; then
+		echo print "${err_text}"
+	else
+		# display the help text
+		[ "$text" ] && print "$text"
+
+		if [ "$text_only" ]; then
+			: # ok - No opts message required
+		else
+			echo print "
+Available command options [ cmd-opts ]:
+${opts:-
+      * No supported command options}"
+		fi
+	fi
+} # => cmd_help()
+
+print_version()
+{
+		cat << VERSION_TEXT
+EasyRSA Version Information
+Version:     $EASYRSA_version
+Generated:   Fri Oct 13 17:27:51 CDT 2023
+SSL Lib:     ${ssl_version:-undefined}
+Git Commit:  3c233d279d43e419b0529411ee62bba7a08f0c0f
+Source Repo: https://github.com/OpenVPN/easy-rsa
+VERSION_TEXT
+} # => print_version ()
+
+ensure_non_existent() {
+
+	while true ; do
+		[ -z "$1" ] && break
+		if [ -e $1 ]; then
+			echo "Error: File $1 exists!"
+			return 1
+		fi
+		shift
+	done
+	return 0
+}
+
+# Algorithm results from testing circa 11/2023:
+# ec  Control Channel: TLSv1.3, cipher TLSv1.3 TLS_CHACHA20_POLY1305_SHA256, peer certificate:  384 bits ECsecp384r1, signature: ecdsa-with-SHA256, peer temporary key: 253 bits X25519
+# ed  Control Channel: TLSv1.3, cipher TLSv1.3 TLS_CHACHA20_POLY1305_SHA256, peer certificate:  256 bits ED25519,     signature: ED25519,           peer temporary key: 253 bits X25519
+# rsa Control Channel: TLSv1.3, cipher TLSv1.3 TLS_CHACHA20_POLY1305_SHA256, peer certificate: 2048 bits RSA,         signature: RSA-SHA256,        peer temporary key: 253 bits X25519
+
+ensure_pki() {
+
+	if [ ! -d pki ]; then
+		if [ -e easyrsa-vars ]; then
+			echo "Info: Using existing easyrsa-vars file!"
+		else
+			local f="/usr/local/bin/vars.example"
+			if [ ! -e "$f" ]; then
+				echo "Warning: Can't find easyrsa vars.example file."
+				echo "# Empty easyras vars file." >easyrsa-vars
+			else
+				cp $f easyrsa-vars
+			fi
+		fi
+	
+		easyrsa --sbatch init-pki
+		cp -p easyrsa-vars pki/vars
+		
+		if [ -n "$SET_EASYRSA_ALGO" ]; then
+			echo "Setting EASYRSA_ALGO to ${SET_EASYRSA_ALGO}."
+			sed -i "s/.*EASYRSA_ALGO.*/set_var EASYRSA_ALGO       $SET_EASYRSA_ALGO/" pki/vars
+		fi
+		
+		grep -E "(EASYRSA_DN|EASYRSA_KEY_SIZE|EASYRSA_ALGO|EASYRSA_CURVE|EASYRSA_CA_EXPIRE|EASYRSA_CERT_EXPIRE)" pki/vars || :
+	fi
+}
+
+verify_ca() {
+
+	if [ ! -e pki/ca.crt ]; then
+		echo "No CA cert has been generated."
+		exit 1
+	fi
+}
+
+show_ca() {
+	easyrsa --sbatch show-ca
+}
+
+build_ca() {
+
+	if [ -e pki/ca.crt ]; then
+		echo "Info: Using existing CA certificate."
+	else
+		ensure_pki
+		# NO sbatch here
+		easyrsa build-ca $@
+		echo
+		show_ca
+	fi
+}
+
+generate_request() {
+
+	if [ ! -e pki/reqs/$1.req ]; then
+		ensure_pki
+		easyrsa --sbatch gen-req $@ text $nopass
+		cat pki/reqs/$1.req
+	fi
+}
+
+generate_server_request() {
+
+	nopass="nopass"
+	generate_request "$@"
+}
+
+generate_client_request() {
+
+	nopass=
+	generate_request "$@"
+}
+
+set_key_value() {
+
+	if [ -z "$inline" ]; then
+		# Do not inline the value.
+		sed -i "s@^$1.*@$1 /etc/openvpn/client/$(basename $2)@"				$template
+	else
+		# Delete the placeholder entry.
+		sed -i "/^$1/d"									$template
+		# Inline the data
+		echo ""										>>$template
+		echo "<$1>"									>>$template
+		cat $2										>>$template
+		echo "</$1>"									>>$template
+	fi
+}
+
+generate_client_config() {
+
+	client="$1"
+	template="$1.tmpl"
+
+	rm -f /etc/openvpn/client/*
+	
+	#######################sed -i "s@.*remote .*@remote openvpn-server.example.com 1194@"				$template
+	sed -i "s@^ca.*@ca /etc/openvpn/client/ca.crt@"						$template
+	sed -i "s@^cert.*@cert /etc/openvpn/client/${client}.crt@"				$template
+	sed -i "s@^key.*@key  /etc/openvpn/client/${client}.key@"				$template
+	sed -i "s@.*verify-x509-name.*@verify-x509-name ${server} name@"			$template
+
+	# Note: The tls crypt key for the client is named after the server.  This allows a client to have
+	# multiple server configurations in the same directory using the same cert and key files but with
+	# server specific tls crypt v2 keys.
+	sed -i "s@^tls-crypt-v2.*@tls-crypt-v2 /etc/openvpn/client/${server}-tls-crypt-v2.key@"	$template
+
+	# Copy or inline the client files.
+	inline="true"
+	set_key_value ca		pki/ca.crt
+	set_key_value cert		pki/issued/${client}.crt
+	set_key_value tls-crypt-v2	pki/easytls/${client}-tls-crypt-v2.key
+
+	# Ensure SELinux context right.	 Note: the config file is named for the target server.
+	touch /etc/openvpn/client/${server}.conf
+	cp $template /etc/openvpn/client/${server}.conf
+	rm $template
+	
+	zipfile="$(pwd)/${client}.zip"
+	pushd /etc/openvpn/client
+	zip -u $zipfile *
+	popd
+
+	# Simulate moving the client's private key into their local openvpn configuration directory.
+	[ -e pki/private/${client}.key ] && cp pki/private/${client}.key      /etc/openvpn/client/
+	ls -lR /etc/openvpn/client/
+}
+
+generate_server_config() {
+
+	server="$1"
+	template="$1.tmpl"
+
+	rm -rf /etc/openvpn/server
+	mkdir /etc/openvpn/server
+
+	sed -i "s@^ca.*@ca /etc/openvpn/server/ca.crt@"						$template
+	sed -i "s@^cert.*@cert /etc/openvpn/server/${server}.crt@"				$template
+	sed -i "s@^key.*@key  /etc/openvpn/server/${server}.key@"				$template
+	sed -i "s@^tls-crypt-v2.*@tls-crypt-v2 /etc/openvpn/server/${server}-tls-crypt-v2.key force-cookie@"	$template
+	sed -i "s@^ifconfig-pool-persist.*@ifconfig-pool-persist /etc/openvpn/server/ipp.txt@"	$template
+	sed -i "s@^client-config-dir.*@client-config-dir /etc/openvpn/server/ccd@"		$template
+
+	# Copy the server files.
+	cp -p pki/ca.crt				/etc/openvpn/server/
+	cp -p pki/crl.pem				/etc/openvpn/server/
+	cp -p pki/issued/${server}.crt			/etc/openvpn/server/
+	cp -p pki/easytls/${server}-tls-crypt-v2.key	/etc/openvpn/server/
+
+	JAIL="true"
+	if [ -n "$JAIL" ]; then
+		# Jail fixups.
+		sed -i 's/^crl-verify.*/crl-verify crl.pem/'					$template
+		sed -i 's/^client-config-dir.*/client-config-dir ccd/'				$template
+		mkdir -p /etc/openvpn/server/jail/ccd
+		mkdir -p /etc/openvpn/server/jail/tmp
+		mv /etc/openvpn/server/crl.pem /etc/openvpn/server/jail/crl.pem
+		chown -R root:openvpn /etc/openvpn/server/jail
+	else
+		mkdir -p /etc/openvpn/server/ccd
+		sed -i 's/^chroot/#chroot/' 							$template
+	fi
+
+	# Ensure SELinux context right.
+	touch /etc/openvpn/server/${server}.conf
+	cp $template /etc/openvpn/server/${server}.conf
+	rm $template
+	
+	tar -czvf ${server}.tgz 	-C /etc/openvpn/server .
+	
+	# Hardcore. Delete it all and restore the files from the tar file.
+	rm -rf /etc/openvpn/server
+	mkdir /etc/openvpn/server
+	tar -xzvf ${server}.tgz		-C /etc/openvpn/server
+
+	# Copy the server key file.
+	[ -e pki/private/${server}.key ] && cp pki/private/${server}.key	/etc/openvpn/server/
+
+	systemctl enable openvpn-server@$server
+}
+
+generate_files() {
+	
+	local type base server
+
+	# Get info about the current configuration.
+	source $1.info
+
+	# Copy the client or server template locally or from /templates.
+	template=/templates/${type}.template
+	[ -e ${type}.template ] && template=${type}.template
+	cp $template ${base}.tmpl
+	
+	if [ "$type" = "client" ]; then
+		generate_client_config $base $server
+	else
+		generate_server_config $base
+	fi
+}
+
+approve_request() {
+
+	local type="$1"
+	local base="$2"
+	local server="$3"
+
+	if [ -e pki/issued/${base}.crt ]; then
+		echo "Info: Using existing certificate: ${base}.crt."
+	elif [ ! -e pki/reqs/${base}.req ]; then
+		echo "File pki/reqs/${base}.req does not exist."
+		# TODO Now what?
+	else
+		easyrsa sign-req $type $base
+		[ ! -d pki/easytls ] && easytls init-tls
+		if [ "$type" = "client" ]; then
+			easytls build-tls-crypt-v2-client $server $base
+		else
+			easytls build-tls-crypt-v2-server $base
+			easyrsa gen-crl
+		fi
+
+		cat >${base}.info <<-__EOD__
+	type="$type"
+	base="$base"
+	server="$server"
+	__EOD__
+
+	fi
+	
+	cat ${base}.info
+		
+	generate_files $base
+}
+
+approve_client() {
+
+	if [ ! -e pki/issued/${2}.crt ]; then
+		echo "File pki/issued/${2}.crt does not exist."
+		# TODO Now what?
+	else
+		approve_request client $1 $2
+	fi
+}
+
+approve_server() {
+
+	approve_request server $1
+}
+
+revoke_cert() {
+	echo "revoke <file_name_base> [reason: keyCompromise|CACompromise|affiliationChanged|superseded|cessationOfOperation|certificateHold]"
+}
+
+check_ca() {
+	echo "."
+}
+
+cmd=$1
+
+shift
+case "$cmd" in
+	generate-server-request|server-req)
+		generate_server_request "$@"
+		;;
+	generate-client-request|client-req)
+		generate_client_request "$@"
+		;;
+	approve-server-request|approve-server)
+		approve_server "$@"
+		;;
+	approve-client-request|approve-client)
+		approve_client "$@"
+		;;
+	generate-files|gen-files)
+		generate_files "$@"
+		;;
+	build-ca|create-ca)
+		build_ca "$@"
+		;;
+	test)
+		cd $HOME/ca
+		[ -d /ca ] && cd /ca
+		##rm -rf pki
+		echo "Test CA" | build_ca nopass
+		generate_server_request vpn1test nopass
+		generate_client_request client1  nopass
+		echo "yes"     | approve_server vpn1test
+		echo "yes"     | approve_client client1   vpn1test
+		;;
+	""|help|-h|--help|--usage)
+		#verify_working_env
+		cmd_help "$1"
+		;;
+	version)
+		print_version
+		;;
+	*)
+		user_error "\
+Unknown command '$cmd'. Run without commands for usage help."
+esac
+
+
+
+echo "Done!"
+
+exit 0

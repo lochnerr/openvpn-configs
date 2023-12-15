@@ -6,9 +6,27 @@ set -xe
 
 # See: https://community.openvpn.net/openvpn/wiki/EasyRSA3-OpenVPN-Howto
 
-cd $HOME
+# Hardening:
+#      https://polansky.co/blog/hardening-openvpn-in-2020/
+#      https://polansky.co/blog/hardening-openvpn-in-2020-extra-credit/
+
+mkdir -p $HOME/ca
+cd $HOME/ca
 echo "Directory is $(pwd)."
 
+###rm -rf pki
+echo "Test CA" | catools build-ca nopass
+catools generate-server-request vpn1test nopass
+catools generate-client-request client1  nopass
+echo "yes"     | catools approve-server vpn1test
+echo "yes"     | catools approve-client client1   vpn1test
+sed -i 's/^proto.*/proto tcp/' /etc/openvpn/client/vpn1test.conf
+sed -i 's/^proto.*/proto tcp/' /etc/openvpn/server/vpn1test.conf
+
+echo 'iroute 192.168.21.0 255.255.255.0' >/etc/openvpn/server/jail/ccd/client1
+chown root:openvpn /etc/openvpn/server/jail/ccd/client1
+
+if [ "1" = "2" ]; then
 # Setup directories for the simulated systems.
 
 rm -rf systems
@@ -138,229 +156,7 @@ easytls build-tls-crypt-v2-client vpn1test client1
 ./easyrsa gen-crl
 
 ls -lR pki/
-
-# Proc to copy the files.
-copy_vpn_files() {
-  BASE="configs/${2}"
-  rm -rf   $BASE
-  mkdir -p $BASE
-
-  cp pki/ca.crt                              $BASE/
-  cp pki/issued/${2}.crt                     $BASE/
-  [ "$1" = "server" ] && cp ../server/pki/private/${2}.key  $BASE/
-
-  if [ "$1" = "client" ]; then
-    cp pki/easytls/${2}-tls-crypt-v2.key     $BASE/${3}-tls-crypt-v2.key
-  else
-    cp pki/easytls/${2}-tls-crypt-v2.key     $BASE/
-    cp ../server/pki/dh.pem                  $BASE/
-    cp pki/crl.pem                           $BASE/
-  fi
-}
-
-# Copy the config files.
-copy_vpn_files server vpn1test
-copy_vpn_files client client1 vpn1test
-
-ls -lR configs/
-
-cat >/tmp/zero-trust.txt <<-__EOD__
-
-__EOD__
-
-cat >server.tmp <<-__EOD__
-# Looking better:
-# The following seem okay under non-chroot and no readonly in compose file...
-#   crl
-#   ipp
-#   User downgrade
-# Need to test chroot and do final cleanup on server config.
-port 1194
-proto udp
-dev tun
-ca   /etc/openvpn/server/ca.crt
-cert /etc/openvpn/server/server.crt
-key  /etc/openvpn/server/server.key
-dh   /etc/openvpn/server/dh.pem
-tls-crypt-v2 /etc/openvpn/server/server-tls-crypt-v2.key
-topology subnet
-server 10.9.0.0 255.255.0.0
-ifconfig-pool-persist /etc/openvpn/server/ipp.txt
-
-# Push routes to the client to allow it
-# to reach other private subnets behind
-# the server.  Remember that these
-# private subnets will also need
-# to know to route the OpenVPN client
-# address pool (10.8.0.0/255.255.255.0)
-# back to the OpenVPN server.
-######push "route 192.168.20.0 255.255.255.0"
-######push "route 192.168.33.0 255.255.255.0"
-
-# To assign specific IP addresses to specific
-# clients or if a connecting client has a private
-# subnet behind it that should also have VPN access,
-# use the subdirectory "ccd" for client-specific
-# configuration files (see man page for more info).
-
-# EXAMPLE: Suppose the client
-# having the certificate common name "Thelonious"
-# also has a small subnet behind his connecting
-# machine, such as 192.168.20.0 255.255.255.0.
-# First, uncomment out these lines:
-client-config-dir /etc/openvpn/server/ccd
-# IP 192.168.33.0 was wrong...
-# Not sure about 20 either, although it doesn't fail immediately in VM like 33.
-######route 192.168.20.0 255.255.255.0
-# Then create a file ccd/Thelonious with this line:
-#   iroute 192.168.20.0 255.255.255.0
-# This will allow Thelonious' private subnet to
-# access the VPN.  This example will only work
-# if you are routing, not bridging, i.e. you are
-# using "dev tun" and "server" directives.
-
-client-to-client
-keepalive 10 120
-max-clients 10
-user openvpn
-group openvpn
-persist-key
-persist-tun
-verb 3
-mute 20
-explicit-exit-notify 1
-# Options not in the sample server.conf file.
-chroot /etc/openvpn/server/jail
-crl-verify /etc/openvpn/server/crl.pem
-tls-version-min 1.2
-tls-cipher TLS-ECDHE-RSA-WITH-AES-128-GCM-SHA256:TLS-ECDHE-ECDSA-WITH-AES-128-GCM-SHA256:TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384:TLS-DHE-RSA-WITH-AES-256-CBC-SHA256
-auth SHA512
-	__EOD__
-
-cat >client.tmp <<-__EOD__
-client
-dev tun
-proto udp
-remote server.example.com 1194
-resolv-retry infinite
-nobind
-# Downgrade privileges after initialization (non-Windows only)
-user openvpn
-group openvpn
-persist-key
-persist-tun
-# Wireless networks often produce a lot
-# of duplicate packets.  Set this flag
-# to silence duplicate packet warnings.
-mute-replay-warnings
-ca ca.crt
-cert client.crt
-key client.key
-tls-crypt-v2 client-tls-crypt-v2.key
-remote-cert-tls server
-# OpenVPN 2.5+ use GCM by default.
-# See: https://support.openvpn.com/hc/en-us/articles/10414258047899-Access-Server-How-to-check-if-the-VPN-connection-is-using-AES-256-GCM-ciphers
-cipher AES-256-GCM
-data-ciphers AES-256-GCM
-verb 3
-mute 20
-tls-client
-### From ivpn config generator
-persist-remote-ip
-tls-cipher TLS-DHE-RSA-WITH-AES-256-CBC-SHA:TLS-DHE-DSS-WITH-AES-256-CBC-SHA:TLS-RSA-WITH-AES-256-CBC-SHA
-#verify-x509-name Server-1 name
-
-# For the purposes of validating client configs, the following settings are okay.
-
-redirect-gateway def1
-
-# The following windows-only options are ignored and harmless in linux.
-ignore-unknown-option block-outside-dns register-dns
-block-outside-dns
-register-dns
-
-# These are accepted in linux; not sure if they work.
-dns server -8 address 8.8.4.4
-dns server -6 address 8.8.8.8
-dns server  0 address 1.1.1.1
-dns search-domains example.com
-	__EOD__
-
-rm -rf /etc/openvpn/server
-mkdir /etc/openvpn/server
-
-server="vpn1test"
-sed -i "s@^cert.*@cert /etc/openvpn/server/${server}.crt@" server.tmp
-sed -i "s@^key.*@key  /etc/openvpn/server/${server}.key@"  server.tmp
-sed -i "s@^tls-crypt-v2.*@tls-crypt-v2 /etc/openvpn/server/${server}-tls-crypt-v2.key@"  server.tmp
-
-cp -p configs/vpn1test/* /etc/openvpn/server/
-
-JAIL="true"
-if [ -n "$JAIL" ]; then
-  # Jail fixups.
-  sed -i 's/^crl-verify.*/crl-verify crl.pem/' server.tmp
-  sed -i 's/^client-config-dir.*/client-config-dir ccd/' server.tmp
-  mkdir -p /etc/openvpn/server/jail/ccd
-  mkdir -p /etc/openvpn/server/jail/tmp
-  mv /etc/openvpn/server/crl.pem /etc/openvpn/server/jail/crl.pem
-  chown -R root:openvpn /etc/openvpn/server/jail
-else
-  mkdir -p /etc/openvpn/server/ccd
-  sed -i 's/^chroot/#chroot/' server.tmp
 fi
-
-# Do the server config.
-# Ensure SELinux context right.
-touch /etc/openvpn/server/vpn1test.conf
-cp server.tmp /etc/openvpn/server/vpn1test.conf
-rm server.tmp
-
-systemctl enable openvpn-server@vpn1test
-
-rm -rf /etc/openvpn/client
-mkdir /etc/openvpn/client
-
-client="client1"
-sed -i "s@.*remote .*@remote openvpn-server.example.com 1194@"    client.tmp
-sed -i "s@^ca.*@ca /etc/openvpn/client/ca.crt@"                   client.tmp
-sed -i "s@^cert.*@cert /etc/openvpn/client/${client}.crt@"        client.tmp
-sed -i "s@^key.*@key  /etc/openvpn/client/${client}.key@"         client.tmp
-sed -i "s@.*verify-x509-name.*@verify-x509-name ${server} name@"  client.tmp
-
-# Note: The tls crypt key for the client is named after the server.  This allows a client to have
-# to multiple servers in the same directory using the same cert and key but with server specific tls
-# crypt v2 keys.
-sed -i "s@^tls-crypt-v2.*@tls-crypt-v2 /etc/openvpn/client/${server}-tls-crypt-v2.key@"  client.tmp
-
-set_key_value() {
-  if [ -z "$inline" ]; then
-    # Do not inline the value.
-    sed -i "s@^$1.*@$1 /etc/openvpn/client/$2@"  client.tmp
-  else
-    # Delete the placeholder entry.
-    sed -i "/^$1/d"                              client.tmp
-    # Inline the data
-    echo ""                                    >>client.tmp
-    echo "<$1>"                                >>client.tmp
-    cat configs/client1/$2                     >>client.tmp
-    echo "</$1>"                               >>client.tmp
-  fi
-}
-inline="true"
-set_key_value ca            ca.crt
-set_key_value cert          ${client}.crt
-sed -i "s@^key.*@key /etc/openvpn/client/${client}.key@"  client.tmp
-
-set_key_value tls-crypt-v2  ${server}-tls-crypt-v2.key
-touch /etc/openvpn/client/vpn1test.conf
-cp client.tmp /etc/openvpn/client/vpn1test.conf
-rm client.tmp
-[ -z "$inline" ] && cp -p configs/client1/* /etc/openvpn/client/
-# Simulate moving the client's private key into their local openvpn configuration directory.
-cp ../client/pki/private/${client}.key      /etc/openvpn/client/
-
-ls -lRZ /etc/openvpn/
 
 echo "Done!"
 

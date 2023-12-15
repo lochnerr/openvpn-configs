@@ -11,7 +11,7 @@ ifconfig-pool-persist ipp.txt
 client-config-dir ccd
 client-to-client
 keepalive 10 120
-tls-crypt-v2 server-tls-crypt-v2.key
+tls-crypt-v2 server-tls-crypt-v2.key force-cookie
 max-clients 100
 user openvpn
 group openvpn
@@ -36,4 +36,8 @@ tls-cipher TLS-ECDHE-ECDSA-WITH-CHACHA20-POLY1305-SHA256:TLS-ECDHE-RSA-WITH-CHAC
 # The dhcp-option DNS is especially important for windows active directory clients.
 #dhcp-option DNS 192.168.20.6
 #dhcp-option DOMAIN ad.example.com
+
+# TODO Figure out how to deal with this properly.
+#push "route   192.168.20.0 255.255.255.0"    # servers network
+#route         192.168.21.0 255.255.255.0     # kernel to openvpn via tun
 

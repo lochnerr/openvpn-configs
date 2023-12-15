@@ -10,6 +10,9 @@ exec /usr/sbin/openvpn \
  --suppress-timestamps \
  --config /etc/openvpn/client/vpn1test.conf &
 
+pid="$!"
+echo "PID is ${pid}."
+
 # Wait a bit for them to connect.
 sleep 2s
 
