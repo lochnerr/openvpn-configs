@@ -1,12 +1,12 @@
 #!/bin/sh
 
-# Run the openvpn server in the same way it is run by the openvpn-server@vpn1test systemd unit.
+# Run the openvpn client in the same way it is run by the fedora openvpn-client@.service systemd unit.
 
 # The run directory is mounted as a tmpfs so this directory needs to be created
 # when not run as a service.
 mkdir -p /run/openvpn-server
 
-# Run it.
+# Run it asynchronously.
 /usr/sbin/openvpn \
  --status /run/openvpn-server/status-vpn1test.log \
  --status-version 2 \

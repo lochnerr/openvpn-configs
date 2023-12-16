@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Run the openvpn client in the same way it is run by the openvpn-client@vpn1test systemd unit.
+# Run the openvpn client in the same way it is run by the fedora openvpn-client@.service systemd unit.
 
 # Wait a bit for the server to start.
 sleep 3s
@@ -8,6 +8,7 @@ sleep 3s
 # Run it asynchronously.
 exec /usr/sbin/openvpn \
  --suppress-timestamps \
+ --nobind \
  --config /etc/openvpn/client/vpn1test.conf &
 
 pid="$!"
