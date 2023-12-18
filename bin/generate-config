@@ -1,0 +1,168 @@
+#!/bin/sh
+
+# generate-config: Script to generate an OpenVPN configuration file for a client or server.
+
+set -xe
+
+set_key_value() {
+
+	if [ -z "$inline" ]; then
+		# Do not inline the value.
+		sed -i "s@^$1.*@$1 /etc/openvpn/client/$(basename $2)@"				$template
+	else
+		# Delete the placeholder entry.
+		sed -i "/^$1/d"									$template
+		# Inline the data
+		echo ""										>>$template
+		echo "<$1>"									>>$template
+		cat $2										>>$template
+		echo "</$1>"									>>$template
+	fi
+}
+
+generate_client_config() {
+
+	client="$1"
+	template="$1.tmpl"
+
+	rm -f /etc/openvpn/client/*
+	
+	#######################sed -i "s@.*remote .*@remote openvpn-server.example.com 1194@"				$template
+	sed -i "s@^ca.*@ca /etc/openvpn/client/ca.crt@"						$template
+	sed -i "s@^cert.*@cert /etc/openvpn/client/${client}.crt@"				$template
+	sed -i "s@^key.*@key  /etc/openvpn/client/${client}.key@"				$template
+	sed -i "s@.*verify-x509-name.*@verify-x509-name ${server} name@"			$template
+
+	# Note: The tls crypt key for the client is named after the server.  This allows a client to have
+	# multiple server configurations in the same directory using the same cert and key files but with
+	# server specific tls crypt v2 keys.
+	sed -i "s@^tls-crypt-v2.*@tls-crypt-v2 /etc/openvpn/client/${server}-tls-crypt-v2.key@"	$template
+
+	# Copy or inline the client files.
+	inline="true"
+	set_key_value ca		pki/ca.crt
+	set_key_value cert		pki/issued/${client}.crt
+	set_key_value tls-crypt-v2	pki/easytls/${client}-tls-crypt-v2.key
+
+	# Ensure SELinux context right.	 Note: the config file is named for the target server.
+	touch /etc/openvpn/client/${server}.conf
+	cp $template /etc/openvpn/client/${server}.conf
+	rm $template
+	
+	zipfile="$(pwd)/${client}.zip"
+	pushd /etc/openvpn/client
+	zip -u $zipfile *
+	popd
+
+	# Simulate moving the client's private key into their local openvpn configuration directory.
+	[ -e pki/private/${client}.key ] && cp pki/private/${client}.key      /etc/openvpn/client/
+	ls -lR /etc/openvpn/client/
+}
+
+generate_server_config() {
+
+	server="$1"
+	template="$1.tmpl"
+
+	rm -rf /etc/openvpn/server
+	mkdir /etc/openvpn/server
+
+	sed -i "s@^ca.*@ca /etc/openvpn/server/ca.crt@"						$template
+	sed -i "s@^cert.*@cert /etc/openvpn/server/${server}.crt@"				$template
+	sed -i "s@^key.*@key  /etc/openvpn/server/${server}.key@"				$template
+	sed -i "s@^tls-crypt-v2.*@tls-crypt-v2 /etc/openvpn/server/${server}-tls-crypt-v2.key force-cookie@"	$template
+	sed -i "s@^ifconfig-pool-persist.*@ifconfig-pool-persist /etc/openvpn/server/ipp.txt@"	$template
+	sed -i "s@^client-config-dir.*@client-config-dir /etc/openvpn/server/ccd@"		$template
+
+	# Copy the server files.
+	cp -p pki/ca.crt				/etc/openvpn/server/
+	cp -p pki/crl.pem				/etc/openvpn/server/
+	cp -p pki/issued/${server}.crt			/etc/openvpn/server/
+	cp -p pki/easytls/${server}-tls-crypt-v2.key	/etc/openvpn/server/
+
+	JAIL="true"
+	if [ -n "$JAIL" ]; then
+		# Jail fixups.
+		sed -i 's/^crl-verify.*/crl-verify crl.pem/'					$template
+		sed -i 's/^client-config-dir.*/client-config-dir ccd/'				$template
+		mkdir -p /etc/openvpn/server/jail/ccd
+		mkdir -p /etc/openvpn/server/jail/tmp
+		mv /etc/openvpn/server/crl.pem /etc/openvpn/server/jail/crl.pem
+		chown -R root:openvpn /etc/openvpn/server/jail
+	else
+		mkdir -p /etc/openvpn/server/ccd
+		sed -i 's/^chroot/#chroot/' 							$template
+	fi
+
+	# Ensure SELinux context right.
+	touch /etc/openvpn/server/${server}.conf
+	cp $template /etc/openvpn/server/${server}.conf
+	rm $template
+	
+	tar -czvf ${server}.tgz 	-C /etc/openvpn/server .
+	
+	# Hardcore. Delete it all and restore the files from the tar file.
+	rm -rf /etc/openvpn/server
+	mkdir /etc/openvpn/server
+	tar -xzvf ${server}.tgz		-C /etc/openvpn/server
+
+	# Copy the server key file.
+	[ -e pki/private/${server}.key ] && cp pki/private/${server}.key	/etc/openvpn/server/
+
+	systemctl enable openvpn-server@$server
+}
+
+# The working directory will typically only be / when running in a container.
+# If so, check for mounted ca directory.
+if [ "$(pwd)" == "/" ]; then
+	if [ ! -d /ca ]; then
+		echo "Error: Can't find Certificate Authority directory."
+		exit 1
+	else
+		cd /ca
+	fi
+fi
+
+# Verify that the ca has been built.
+if [ ! -e pki/ca.crt ]; then
+	echo "Error: Certificate Authority has not been initialized."
+	echo "Have you run build-ca?"
+	exit 1
+fi
+
+# Show command format.
+if [ -z "$1" ]; then
+	echo "Format: $(basename $0) client_or_server_name [linux]"
+	exit 1
+fi
+
+base="$1"
+
+# Ensure that there is a certificate for this request.
+if [ ! -e "pki/issued/${base}.crt" ]; then
+	echo "Error: Can't find a signed ${base} certificate."
+	exit 1
+fi
+
+# If there is a config info file, then this is probably a client.
+# A client needs to know its server name which is stored in the
+# info file when by the sign-request script.
+type="server"
+if [ -e config/${base}.info ]; then
+	type="client"
+	source config/${base}.info
+fi
+
+# Copy the client or server template locally or from /templates.
+template=/templates/${type}.template
+[ -e ${type}.template ] && template=${type}.template
+cp $template ${base}.tmpl
+	
+if [ "$type" = "client" ]; then
+	generate_client_config $base $server
+else
+	generate_server_config $base
+fi
+
+echo "Script $(basename $0) Done!"
+

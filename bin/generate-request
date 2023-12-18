@@ -1,0 +1,65 @@
+#!/bin/sh
+
+# generate-request: Script to generate a private key and a certificate signing request for a OpenVPN client or server.
+
+set -e
+
+# Check for required script.
+if ! command -v easyrsa >/dev/null 2>&1 ; then
+	echo "Error: This script requires easyrsa to be executable on the current path."
+	exit 1
+fi
+
+# The working directory will typically only be / when running in a container.
+# If so, check for mounted ca directory.
+if [ "$(pwd)" == "/" ]; then
+	if [ ! -d /ca ]; then
+		echo "Error: Can't find Certificate Authority directory."
+		exit 1
+	else
+		cd /ca
+	fi
+fi
+
+# Default values.
+EASYRSA_ALGO="ed"
+EASYRSA_KEY_SIZE="2048"
+EASYRSA_CERT_EXPIRE="3650"
+
+# TODO Process command args...
+
+if [ -z "$1" ]; then
+	echo "Format: $(basename $0) <name> [--nopass] [--text] [--days 3650] [--algo rsa|ed|ec] [--keysize 2048]"
+	exit 1
+fi
+
+# Create a temporary empty vars file.
+touch /tmp/vars
+args="--vars=/tmp/vars"
+
+# If there is no pki, then create it temporarily just to make the key and the request.
+if [ ! -d pki ]; then
+	dest="$(pwd)"
+	pushd /tmp >/dev/null
+	easyrsa $args --sbatch init-pki
+fi
+
+# Set the args for the command.
+args="$args --use-algo=$EASYRSA_ALGO"
+[ "$EASYRSA_ALGO" == "rsa" ] && args="$args --keysize=$EASYRSA_KEY_SIZE"
+args="$args --days=$EASYRSA_CERT_EXPIRE"
+
+easyrsa $args --sbatch --silent-ssl gen-req $@
+
+if [ "$(pwd)" == "/tmp" ]; then
+	popd >/dev/null
+	# Get the files from the temporary pki and delete the rest.
+	mv /tmp/pki/reqs/*.req     .
+        mv /tmp/pki/private/*.key  .
+        # Clean up the mess.
+        rm -rf /tmp/pki
+        rm /tmp/vars
+fi
+
+echo "Script $(basename $0) Done!"
+

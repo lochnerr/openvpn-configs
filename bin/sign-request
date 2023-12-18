@@ -1,0 +1,81 @@
+#!/bin/sh
+
+# sign-request: Script to sign a certificate signing request for a OpenVPN client or server.
+
+set -e
+
+# The working directory will typically only be / when running in a container.
+# If so, check for mounted ca directory.
+if [ "$(pwd)" == "/" ]; then
+	if [ ! -d /ca ]; then
+		echo "Error: Can't find Certificate Authority directory."
+		exit 1
+	else
+		cd /ca
+	fi
+fi
+
+# Verify that the ca has been built.
+if [ ! -e pki/ca.crt ]; then
+	echo "Error: Certificate Authority has not been initialized."
+	echo "Have you run build-ca?"
+	exit 1
+fi
+
+# Show command format.
+if [ -z "$1" ]; then
+	echo "Format: $(basename $0) <client> <server> | <server>"
+	exit 1
+fi
+
+# If there is only one argument, this is a server request.
+base="$1"
+server="$2"
+type="client"
+[ -z "$server" ] && type="server"
+
+# Ensure that the certificate does not already exist.
+if [ -e "pki/issued/${base}.crt" ]; then
+	echo "Error: A certioficate for ${base} alreadu exists."
+	exit 1
+fi
+
+# Ensure that the sign request exists.
+if [ ! -e "pki/reqs/${base}.req" ]; then
+	echo "Error: Can't find a ${base} signing request."
+	exit 1
+fi
+
+# If this is a client request, ensure that there is a tls-crypt-v2 key for the server.
+if [ "$type" == "client" ]; then
+	if [ ! -e "pki/easytls/${server}-tls-crypt-v2.key" ]; then
+		echo "Error: Can't find tls-crypt-v2 key for ${server}."
+		exit 1
+	fi
+fi
+
+echo "Info: Signing $type request."
+
+# Sign the request.
+easyrsa --sbatch --silent-ssl sign-req $type ${base}
+
+# Now build a tls-crypt-v2 key for the client or server.
+if [ "$type" == "client" ]; then
+	easytls build-tls-crypt-v2-client $server $base
+else
+	easytls build-tls-crypt-v2-server $base
+fi
+
+# Finally, create a config info file, if this is a client.
+if [ "$type" == "client" ]; then
+	mkdir -p config
+	cat >config/${base}.info <<-__EOD__
+	server="$server"
+	__EOD__
+fi
+
+# Now, generate the config file!
+generate-config ${base}
+
+echo "Script $(basename $0) Done!"
+

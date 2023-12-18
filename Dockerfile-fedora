@@ -68,7 +68,7 @@ mkdir -p /run/openvpn-client && \
 chown -R root:openvpn /run/openvpn-server && \
 chown -R root:openvpn /run/openvpn-client && \
 # Generate the config files.
-/usr/local/bin/generate-configs && \
+/usr/local/bin/generate-test-configs && \
 systemctl enable openvpn-server@vpn1test && \
 systemctl enable openvpn-shutdown.service && \
 true

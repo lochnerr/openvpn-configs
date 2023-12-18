@@ -1,0 +1,88 @@
+#!/bin/sh
+
+# build-ca: Script to setup a Certificate Authority using the Easy-RSA 3 library.
+
+set -e
+
+# Check for required scripts.
+if ! command -v easyrsa >/dev/null 2>&1 ; then
+	echo "Error: These scripts require easyrsa to be on the current path, exiting!"
+	exit 1
+fi
+if ! command -v easytls >/dev/null 2>&1 ; then
+	echo "Error: These scripts require easytls to be on the current path, exiting!"
+	exit 1
+fi
+
+# The working directory will typically only be / when running in a container.
+# If so, check for mounted ca directory.
+if [ "$(pwd)" == "/" ]; then
+	if [ ! -d /ca ]; then
+		echo "Error: Not building ca in / directory, exiting!"
+		exit 1
+	else
+		cd /ca
+	fi
+fi
+
+# Get the number of directory entries in the current directory
+entries="$(ls -la . 2>/dev/null | wc -l)"
+if [ $entries -gt 7 ]; then
+	echo "Error: Normally a CA is built in a near empty directory, aborting!"
+	exit 1
+fi
+
+# Has the ca been built already?
+if [ -e pki/ca.crt ]; then
+	echo "Error: Certificate Authority already exists."
+	exit 1
+fi
+
+# Initialize the pki directory, if needed.
+if [ ! -d pki ]; then
+	easyrsa --sbatch init-pki
+fi
+
+# Find an easyrsa vars file.
+if [ ! -e pki/vars ]; then
+	if [ -e easyrsa-vars ]; then
+		echo "Info: Using existing easyrsa-vars file!"
+		mv easyrsa-vars pki/vars
+	else 
+		if [ -e vars ]; then
+			echo "Info: Using existing vars file!"
+			mv vars pki/vars
+		else
+			for f in $(find /usr | grep /vars.example) ; do break ; done
+			if [ ! -e $f ]; then
+				echo "Error: vars.example file not found, aborting!"
+				exit 1
+			fi
+			echo "Info: Using default easyrsa vars file: ${f}."
+			cp $f pki/vars
+		fi
+	fi
+	echo
+	echo "Info: Important settings are:"
+	grep -E "(EASYRSA_DN|EASYRSA_KEY_SIZE|EASYRSA_ALGO|EASYRSA_CURVE|EASYRSA_CA_EXPIRE|EASYRSA_CERT_EXPIRE)" pki/vars || :
+	echo
+fi
+
+# Build the ca!
+#easyrsa --sbatch --silent-ssl build-ca $@
+easyrsa build-ca $@
+echo
+echo "Initializing easytls..."
+
+easytls init-tls
+
+echo "The newly created CA certificate:"
+echo
+easyrsa --sbatch show-ca
+echo
+echo "Creating an empty certificate revocation list."
+echo
+easyrsa --sbatch --silent-ssl gen-crl
+
+echo "Script $(basename $0) Done!"
+
