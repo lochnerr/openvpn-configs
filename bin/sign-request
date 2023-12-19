@@ -36,14 +36,18 @@ type="client"
 
 # Ensure that the certificate does not already exist.
 if [ -e "pki/issued/${base}.crt" ]; then
-	echo "Error: A certioficate for ${base} alreadu exists."
+	echo "Error: A certificate for ${base} already exists."
 	exit 1
 fi
 
 # Ensure that the sign request exists.
 if [ ! -e "pki/reqs/${base}.req" ]; then
-	echo "Error: Can't find a ${base} signing request."
-	exit 1
+	if [ -e "${base}.req" ]; then
+		import_needed="true"
+	else
+		echo "Error: Can't find a ${base} signing request."
+		exit 1
+	fi
 fi
 
 # If this is a client request, ensure that there is a tls-crypt-v2 key for the server.
@@ -55,6 +59,11 @@ if [ "$type" == "client" ]; then
 fi
 
 echo "Info: Signing $type request."
+
+if [ -n "$import_needed" ]; then
+	easyrsa --sbatch import-req ${base}.req ${base}
+	rm ${base}.req
+fi
 
 # Sign the request.
 easyrsa --sbatch --silent-ssl sign-req $type ${base}
