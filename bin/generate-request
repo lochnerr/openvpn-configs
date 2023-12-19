@@ -33,6 +33,16 @@ if [ -z "$1" ]; then
 	exit 1
 fi
 
+# Ensure that the certificate or request does not already exist.
+exists=
+[ -e "${1}.req" ] && exists="true"
+[ -e "pki/reqs/${1}.req" ] && exists="true"
+[ -e "pki/issued/${1}.crt" ] && exists="true"
+if [ "$exists" == "true" ]; then
+	echo "Error: A certificate or a request for ${1} already exists."
+	exit 1
+fi
+
 # Create a temporary empty vars file.
 touch /tmp/vars
 args="--vars=/tmp/vars"
