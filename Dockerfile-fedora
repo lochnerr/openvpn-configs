@@ -12,10 +12,14 @@ ARG SET_EASYRSA_ALGO=ed
 
 # Manditory packages:
 # openvpn - The OpenVPN package
-# openssl - needed by easytls
+# easy-rsa - Needed to generate configuration files (installed separately below)
+# which - Needed by easyrsa
+# bc - Needed by easyrsa version 3.2.1 to get BIGINT serial numbers for certificates
+# openssl - Needed by easytls
 # git - Used to get the easytls scripts
+# zip - Used to create client configuration "packages"
 # systemd-container - systemd for containers
-# easy-rsa - For setting up certificate authority
+# easy-tls - Needed to generate tls-crypt-v2 files (installed separately with git clone)
 
 # Useful packages for debugging:
 # iproute - ip
@@ -25,6 +29,8 @@ ARG SET_EASYRSA_ALGO=ed
 RUN \
 dnf -y install --nodocs \
  openvpn \
+ which \
+ bc \
  openssl \
  git \
  zip \
@@ -42,12 +48,14 @@ mv -f /etc/dnf/dnf.conf.save /etc/dnf/dnf.conf && \
 # Make easyrsa globally available.
 easyrsa="$(find /usr/share | grep easyrsa)" && \
 ln -s $easyrsa  /usr/local/bin/ && \
+easyrsa version $$ \
 # Save link to vars.example.
 ln -s /usr/share/doc/easy-rsa/vars.example /usr/local/bin/ && \
 # Get easytls.
 cd /usr/local/share/ && \
 git clone https://github.com/TinCanTech/easy-tls.git && \
 ln -s ../share/easy-tls/easytls /usr/local/bin && \
+easytls version $$ \
 dnf -y clean all && \
 # Empty the yum cache.
 rm -rf /var/cache/dnf && \
