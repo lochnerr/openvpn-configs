@@ -40,15 +40,20 @@ generate_client_config() {
 
 	# Copy or inline the client files.
 	inline="true"
-	set_key_value ca		pki/ca.crt
-	set_key_value cert		pki/issued/${client}.crt
+	if [ ! -e pki/inline/${client}.inline ]; then
+		set_key_value ca	pki/ca.crt
+		set_key_value cert	pki/issued/${client}.crt
+	else
+		# Use the inline values created automatically by the easyrsa sign-req command.
+		cat pki/inline/${client}.inline		>>$template
+	fi
 	set_key_value tls-crypt-v2	pki/easytls/${client}-tls-crypt-v2.key
 
 	# Ensure SELinux context right.	 Note: the config file is named for the target server.
 	touch /etc/openvpn/client/${server}.conf
 	cp $template /etc/openvpn/client/${server}.conf
 	rm $template
-	
+
 	zipfile="$(pwd)/${client}.zip"
 	pushd /etc/openvpn/client
 	zip -u $zipfile *
@@ -89,8 +94,12 @@ generate_server_config() {
 		mkdir -p /etc/openvpn/server/jail/tmp
 		mv /etc/openvpn/server/crl.pem /etc/openvpn/server/jail/crl.pem
 		chown -R root:openvpn /etc/openvpn/server/jail
+		chmod 0666 /etc/openvpn/server/jail
+		chmod 0600 /etc/openvpn/server/jail/ccd
+		chmod 0777 /etc/openvpn/server/jail/tmp
 	else
 		mkdir -p /etc/openvpn/server/ccd
+		chmod 0666 /etc/openvpn/server/ccd
 		sed -i 's/^chroot/#chroot/' 							$template
 	fi
 
