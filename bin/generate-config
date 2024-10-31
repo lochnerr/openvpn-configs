@@ -45,6 +45,8 @@ generate_client_config() {
 		set_key_value cert	pki/issued/${client}.crt
 	else
 		# Use the inline values created automatically by the easyrsa sign-req command.
+		sed -i "/^ca /d"			$template
+		sed -i "/^cert /d"			$template
 		cat pki/inline/${client}.inline		>>$template
 	fi
 	set_key_value tls-crypt-v2	pki/easytls/${client}-tls-crypt-v2.key
