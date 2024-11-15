@@ -56,14 +56,14 @@ generate_client_config() {
 	cp $template /etc/openvpn/client/${server}.conf
 	rm $template
 
+	# Move the client private key into the configuration directory.
+	[ -e pki/private/${client}.key ] && cp pki/private/${client}.key      /etc/openvpn/client/
+	ls -lR /etc/openvpn/client/
+
 	zipfile="$(pwd)/${client}.zip"
 	pushd /etc/openvpn/client
 	zip -u $zipfile *
 	popd
-
-	# Simulate moving the client's private key into their local openvpn configuration directory.
-	[ -e pki/private/${client}.key ] && cp pki/private/${client}.key      /etc/openvpn/client/
-	ls -lR /etc/openvpn/client/
 }
 
 generate_server_config() {
@@ -74,12 +74,9 @@ generate_server_config() {
 	rm -rf /etc/openvpn/server
 	mkdir /etc/openvpn/server
 
-	sed -i "s@^ca.*@ca /etc/openvpn/server/ca.crt@"						$template
-	sed -i "s@^cert.*@cert /etc/openvpn/server/${server}.crt@"				$template
-	sed -i "s@^key.*@key  /etc/openvpn/server/${server}.key@"				$template
-	sed -i "s@^tls-crypt-v2.*@tls-crypt-v2 /etc/openvpn/server/${server}-tls-crypt-v2.key force-cookie@"	$template
-	sed -i "s@^ifconfig-pool-persist.*@ifconfig-pool-persist /etc/openvpn/server/ipp.txt@"	$template
-	sed -i "s@^client-config-dir.*@client-config-dir /etc/openvpn/server/ccd@"		$template
+	sed -i "s@^cert.*@cert ${server}.crt@"							$template
+	sed -i "s@^key.*@key  ${server}.key@"							$template
+	sed -i "s@^tls-crypt-v2.*@tls-crypt-v2 ${server}-tls-crypt-v2.key force-cookie@"	$template
 
 	# Copy the server files.
 	cp -p pki/ca.crt				/etc/openvpn/server/
@@ -87,38 +84,42 @@ generate_server_config() {
 	cp -p pki/issued/${server}.crt			/etc/openvpn/server/
 	cp -p pki/easytls/${server}-tls-crypt-v2.key	/etc/openvpn/server/
 
-	JAIL="true"
-	if [ -n "$JAIL" ]; then
-		# Jail fixups.
-		sed -i 's/^crl-verify.*/crl-verify crl.pem/'					$template
-		sed -i 's/^client-config-dir.*/client-config-dir ccd/'				$template
-		mkdir -p /etc/openvpn/server/jail/ccd
-		mkdir -p /etc/openvpn/server/jail/tmp
-		mv /etc/openvpn/server/crl.pem /etc/openvpn/server/jail/crl.pem
-		chown -R root:openvpn /etc/openvpn/server/jail
-		chmod 0666 /etc/openvpn/server/jail
-		chmod 0600 /etc/openvpn/server/jail/ccd
-		chmod 0777 /etc/openvpn/server/jail/tmp
-	else
-		mkdir -p /etc/openvpn/server/ccd
-		chmod 0666 /etc/openvpn/server/ccd
-		sed -i 's/^chroot/#chroot/' 							$template
+	# This needs to be group readable in case of root privilege drop.
+	chown root:openvpn /etc/openvpn/server/crl.pem
+	chmod 0640 /etc/openvpn/server/crl.pem
+
+	# Create diretories.  These need to be group readable in case of root privilege drop.
+	mkdir -p /etc/openvpn/server/ccd
+	chown root:openvpn /etc/openvpn/server/ccd
+	mkdir -p /etc/openvpn/server/tmp
+	chown root:openvpn /etc/openvpn/server/tmp
+
+	if grep -q "^chroot" $template; then
+		mkdir -p /etc/openvpn/server/jail
+
+		# Move these to the jail directory and create links so they will work with and without a chroot.
+		mv /etc/openvpn/server/crl.pem /etc/openvpn/server/jail/
+		ln -s jail/crl.pem /etc/openvpn/server/crl.pem
+
+		mv /etc/openvpn/server/ccd /etc/openvpn/server/jail/
+		ln -s jail/ccd /etc/openvpn/server/ccd
+
+		mv /etc/openvpn/server/tmp /etc/openvpn/server/jail/
+		ln -s jail/tmp /etc/openvpn/server/tmp
 	fi
 
-	# Ensure SELinux context right.
-	touch /etc/openvpn/server/${server}.conf
 	cp $template /etc/openvpn/server/${server}.conf
 	rm $template
-	
+
+	# Copy the server key file.
+	[ -e pki/private/${server}.key ] && cp pki/private/${server}.key	/etc/openvpn/server/
+
 	tar -czvf ${server}.tgz 	-C /etc/openvpn/server .
 	
 	# Hardcore. Delete it all and restore the files from the tar file.
 	rm -rf /etc/openvpn/server
 	mkdir /etc/openvpn/server
 	tar -xzvf ${server}.tgz		-C /etc/openvpn/server
-
-	# Copy the server key file.
-	[ -e pki/private/${server}.key ] && cp pki/private/${server}.key	/etc/openvpn/server/
 
 	systemctl enable openvpn-server@$server
 }
