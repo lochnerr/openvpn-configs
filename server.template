@@ -22,8 +22,8 @@ verb 4
 mute 20
 explicit-exit-notify 1
 # Options not in the openvpn sample server.conf file.
-chroot /etc/openvpn/server/jail
-crl-verify /etc/openvpn/server/crl.pem
+chroot jail
+crl-verify crl.pem
 tls-server
 remote-cert-tls client
 # From: https://polansky.co/blog/hardening-openvpn-in-2020/

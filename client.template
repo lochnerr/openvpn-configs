@@ -14,7 +14,6 @@ ca ca.crt
 cert client.crt
 key client.key
 remote-cert-tls server
-# Note: A tls-crypt-v2 key ties a client to a specific server.
 tls-crypt-v2 myserver-tls-crypt-v2.key
 # OpenVPN 2.5+ use GCM by default.
 # See: https://support.openvpn.com/hc/en-us/articles/10414258047899-Access-Server-How-to-check-if-the-VPN-connection-is-using-AES-256-GCM-ciphers
