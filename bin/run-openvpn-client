@@ -5,6 +5,12 @@
 # Wait a bit for the server to start.
 sleep 3s
 
+if [ -e /ca/client.template ]; then
+  echo "We have a template."
+else
+  echo "No template to process."
+fi
+
 # Run it asynchronously.
 exec /usr/sbin/openvpn \
  --suppress-timestamps \

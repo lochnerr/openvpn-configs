@@ -6,6 +6,8 @@
 # when not run as a service.
 mkdir -p /run/openvpn-server
 
+cd /etc/openvpn/server
+
 # Run it asynchronously.
 /usr/sbin/openvpn \
  --status /run/openvpn-server/status-vpn1test.log \

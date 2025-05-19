@@ -4,7 +4,7 @@ version: '3'
 
 services:
   server:
-    image: lochnerr/openvpn-configs:latest
+    image: lochnerr/openvpn-configs:${DISTRO:-fedora}-${RELEASE:-latest}
     # To run the server as a systemd process, comment the following command.
     command: /usr/local/bin/run-openvpn-server
     restart: "no"
@@ -26,7 +26,7 @@ services:
       - /run
       - /tmp
   sut:
-    image: lochnerr/openvpn-configs:latest
+    image: lochnerr/openvpn-configs:${DISTRO:-fedora}-${RELEASE:-latest}
     command: /usr/local/bin/run-openvpn-client
     restart: "no"
     hostname: sut.example.com

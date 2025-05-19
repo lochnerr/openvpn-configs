@@ -1,0 +1,40 @@
+#!/bin/sh
+
+# generate-server-config: Generate OpenVPN server config and related PKI infrastructure.
+
+set -e
+
+server="${1}"
+
+if [ -z "${server}" ]; then
+	echo "Format: $(basename $0) <server name>"
+	exit 1
+fi
+
+if [ -d ${server} ]; then
+	echo "Using existing server directory: $(pwd)/${server}."
+else
+	mkdir ${server}
+fi
+cd ${server}
+
+if [ ! -e pki/ca.crt ]; then
+	echo "testca
+testca
+${server} CA
+testca" | \
+	podman run --rm -v $(pwd):/ca -it openvpn-configs build-ca
+else
+	echo "Using existing Certificate Authority."
+fi
+
+if [ -e pki/issued/${server}.crt ]; then
+	echo "Regenerating server config."
+	podman run --rm -v $(pwd):/ca -it openvpn-configs generate-config ${server}
+else
+	podman run --rm -v $(pwd):/ca -it openvpn-configs generate-request ${server}  nopass
+	echo "testca" | podman run --rm -v $(pwd):/ca -it openvpn-configs sign-request ${server}
+fi
+
+echo "Script $(basename $0) Done!"
+
